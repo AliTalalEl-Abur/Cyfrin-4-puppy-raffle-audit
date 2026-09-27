@@ -213,4 +213,37 @@ contract PuppyRaffleTest is Test {
         puppyRaffle.withdrawFees();
         assertEq(address(feeAddress).balance, expectedPrizeAmount);
     }
+
+    function test_denialOfService() public {
+        // forge-std v1.3.0 has no vm.txGasPrice; use a fixed price for cost calc
+        uint256 gasPrice = 1;
+        uint256 playersNum = 100;
+
+        // Let's enter 100 players
+        address[] memory players = new address[](playersNum);
+        for (uint256 i = 0; i < playersNum; i++) {
+            players[i] = address(i + 1);
+        }
+        // see how much gas it cost
+        uint256 gasStart = gasleft();
+        puppyRaffle.enterRaffle{value: entranceFee * players.length}(players);
+        uint256 gasEnd = gasleft();
+        uint256 gasUsedFirst = (gasStart - gasEnd) * gasPrice;
+        emit log_named_uint("Gas cost of the first 100 players", gasUsedFirst);
+
+        // now for the 2nd 100 players
+        address[] memory playersTwo = new address[](playersNum);
+        for (uint256 i = 0; i < playersNum; i++) {
+            playersTwo[i] = address(i + 1 + playersNum);
+        }
+        // see how much gas it cost
+        uint256 gasStartSecond = gasleft();
+        puppyRaffle.enterRaffle{value: entranceFee * playersTwo.length}(playersTwo);
+        uint256 gasEndSecond = gasleft();
+        uint256 gasUsedSecond = (gasStartSecond - gasEndSecond) * gasPrice;
+        emit log_named_uint("Gas cost of the second 100 players", gasUsedSecond);
+
+        assert(gasUsedFirst < gasUsedSecond);
+    }
+    
 }
