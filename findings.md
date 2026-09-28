@@ -66,6 +66,37 @@ function test_denialOfService() public {
 1. Consider allowing duplicates. Users can make new wallet addresses anyways, so a duplicate check doesn't prevent the same person from entering multiple times, only the same wallet address.
 2. Consider using a mapping to check for duplicates. This would allow constant time lookup of whether a user has already entered.
 
-```
+```diff
++    mapping(address => uint256) public addressToRaffleId;
++    uint256 public raffleId = 0;
+    .
+    .
+    .
+    function enterRaffle(address[] memory newPlayers) public payable {
+        require(msg.value == entranceFee * newPlayers.length, "PuppyRaffle: Must send enough to enter raffle");
+        for (uint256 i = 0; i < newPlayers.length; i++) {
+            players.push(newPlayers[i]);
++            addressToRaffleId[newPlayers[i]] = raffleId;
+        }
+​
+-        // Check for duplicates
++       // Check for duplicates only from the new players
++       for (uint256 i = 0; i < newPlayers.length; i++) {
++          require(addressToRaffleId[newPlayers[i]] != raffleId, "PuppyRaffle: Duplicate player");
++       }
+-        for (uint256 i = 0; i < players.length; i++) {
+-            for (uint256 j = i + 1; j < players.length; j++) {
+-                require(players[i] != players[j], "PuppyRaffle: Duplicate player");
+-            }
+-        }
+        emit RaffleEnter(newPlayers);
+    }
+.
+.
+.
+    function selectWinner() external {
++       raffleId = raffleId + 1;
+        require(block.timestamp >= raffleStartTime + raffleDuration, "PuppyRaffle: Raffle not over");
+    }
 
 ```
