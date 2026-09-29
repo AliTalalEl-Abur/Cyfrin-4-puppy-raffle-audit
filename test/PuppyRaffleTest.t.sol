@@ -270,6 +270,15 @@ contract PuppyRaffleTest is Test {
         emit log_named_uint("ending attacker contract balance", address(attackerContract).balance);
         emit log_named_uint("ending contract balance", address(puppyRaffle).balance);
     }
+
+    function testCantSendMoneytoRaffle() public {
+        address senderAddy = makeAddr("sender");
+        vm.deal(senderAddy, 1 ether);
+        vm.expectRevert();
+        vm.prank(senderAddy);
+        (bool success,) = payable(address(puppyRaffle)).call{value: 1 ether}("");
+        require(success);
+    }
 }
 
 contract ReentrancyAttack {
