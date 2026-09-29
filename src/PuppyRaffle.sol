@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.7.6;
 // @audit-info use of float pragma is bad
+// @audit-info use of ^0.7.6 is bad
 
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
@@ -37,6 +38,7 @@ contract PuppyRaffle is ERC721, Ownable {
     mapping(uint256 => string) public rarityToName;
 
     // Stats for the common puppy (pug)
+    // @audit-gas should be constant
     string private commonImageUri = "ipfs://QmSsYRx3LpDAb1GZQm7zZ1AuHZjfbPkD6J7s9r41xu1mf8";
     uint256 public constant COMMON_RARITY = 70;
     string private constant COMMON = "common";
@@ -61,6 +63,8 @@ contract PuppyRaffle is ERC721, Ownable {
     /// @param _raffleDuration the duration in seconds of the raffle
     constructor(uint256 _entranceFee, address _feeAddress, uint256 _raffleDuration) ERC721("Puppy Raffle", "PR") {
         entranceFee = _entranceFee;
+        // @audit-info check for zero address
+        // input validation
         feeAddress = _feeAddress;
         raffleDuration = _raffleDuration;
         raffleStartTime = block.timestamp;
@@ -88,7 +92,7 @@ contract PuppyRaffle is ERC721, Ownable {
         }
 
         // Check for duplicates
-        // @audit Dos 
+        // @audit -gas uint256 playerLength = players.length;
         for (uint256 i = 0; i < players.length - 1; i++) {
             for (uint256 j = i + 1; j < players.length; j++) {
                 require(players[i] != players[j], "PuppyRaffle: Duplicate player");
@@ -108,6 +112,10 @@ contract PuppyRaffle is ERC721, Ownable {
         payable(msg.sender).sendValue(entranceFee);
 
         players[playerIndex] = address(0);
+        // @audit-low
+        // If an event can be manipulated
+        // An event is missing
+        // An event is wrong
         emit RaffleRefunded(playerAddress);
     }
 
@@ -200,6 +208,7 @@ contract PuppyRaffle is ERC721, Ownable {
         uint256 feesToWithdraw = totalFees;
         totalFees = 0;
         // q what if the feeAddress is a smart contract with a fallback that will fail?
+        // slither-disable-next-line arbitrary-send-eth
         (bool success,) = feeAddress.call{value: feesToWithdraw}("");
         require(success, "PuppyRaffle: Failed to withdraw fees");
     }
