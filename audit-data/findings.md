@@ -328,6 +328,106 @@ function test_denialOfService() public {
 
 Alternatively, you could use [OpenZeppelin's `EnumerableSet` library](https://docs.openzeppelin.com/contracts/4.x/api/utils#EnumerableSet).
 
+### [M-2] Slightly increasing `PuppyRaffle`'s contract balance will render `withdrawFees` function useless
+
+**Description:** The `PuppyRaffle::withdrawFees` function uses a strict equality check between the contract's ETH balance and `totalFees` to determine whether players are still active:
+
+```javascript
+function withdrawFees() external {
+@>      require(address(this).balance == uint256(totalFees), "PuppyRaffle: There are currently players active!");
+        uint256 feesToWithdraw = totalFees;
+        totalFees = 0;
+        (bool success,) = feeAddress.call{value: feesToWithdraw}("");
+        require(success, "PuppyRaffle: Failed to withdraw fees");
+    }
+```
+
+Using `address(this).balance` in this way invites attackers to modify said balance in order to make this check fail. An attacker can force ETH into the contract (for example via a `selfdestruct` call) without going through `enterRaffle`, so `totalFees` no longer matches `address(this).balance` even when there are no active players.
+
+**Impact:** All fees that weren't withdrawn and all future fees are stuck in the contract. There is no other way of taking the fees out of the protocol.
+
+**Proof of Concept:**
+
+1. A raffle is completed and fees accumulate in `totalFees`
+2. An attacker deploys a contract that `selfdestruct`s and sends a small amount of ETH to `PuppyRaffle`
+3. `address(this).balance` is now greater than `totalFees`
+4. Any call to `PuppyRaffle::withdrawFees` reverts with `"PuppyRaffle: There are currently players active!"`
+
+<details>
+<summary>PoC</summary>
+
+Add this contract above `PuppyRaffleTest`:
+
+```javascript
+contract ForceSend {
+    constructor(address target) payable {
+        address payable _target = payable(target);
+        selfdestruct(_target);
+    }
+}
+```
+
+Place the following into `PuppyRaffleTest.t.sol`:
+
+```javascript
+function test_forceSendBreaksWithdrawFees() public playersEntered {
+        // Finish raffle so fees accumulate
+        vm.warp(block.timestamp + duration + 1);
+        vm.roll(block.number + 1);
+        puppyRaffle.selectWinner();
+
+        // Attacker forces a tiny amount of ETH into the raffle
+        address attacker = makeAddr("attacker");
+        vm.deal(attacker, 1 ether);
+        vm.prank(attacker);
+        new ForceSend{value: 0.01 ether}(address(puppyRaffle));
+
+        // withdrawFees is now permanently bricked
+        vm.expectRevert("PuppyRaffle: There are currently players active!");
+        puppyRaffle.withdrawFees();
+    }
+```
+
+</details>
+
+**Recommended Mitigation:** Avoid using `address(this).balance` in this way as it can easily be changed by an attacker. Properly track `totalFees` and withdraw it without relying on a strict balance equality.
+
+```diff
+    function withdrawFees() external {
+-       require(address(this).balance == uint256(totalFees), "PuppyRaffle: There are currently players active!");
+        uint256 feesToWithdraw = totalFees;
+        totalFees = 0;
+        (bool success,) = feeAddress.call{value: feesToWithdraw}("");
+        require(success, "PuppyRaffle: Failed to withdraw fees");
+    }
+```
+
+### [M-3] Smart contract wallets raffle winners without a `receive` or a `fallback` function will block the start of a new contest
+
+**Description:** The `PuppyRaffle::selectWinner` function is responsible for resetting the lottery. However, if the winner is a smart contract wallet that rejects payment, the lottery would not be able to restart.
+
+Users could easily call the `selectWinner` function again and non-wallet entrants could enter, but it could cost a lot due to the duplicate check and a lottery reset could get very challenging.
+
+**Impact:** The `PuppyRaffle::selectWinner` function could revert many times, making a lottery reset difficult.
+
+Also, true winners would not get paid out and someone else could take their money!
+
+**Proof Of Concept**
+1. 10 smart contract wallets enter the lottery without a fallback or receive function.
+2. The lottery ends
+3. The `selectWinner` function wouldn't work, even though the lottery is over!
+
+**Recommended Mitigation:** There are a few options to mitigate this issue.
+
+1. Do not allow smart contract wallet entrants (not recommended)
+2. Create a mapping of addresses -> payout amounts so winners can pull their funds out themselves with a new `claimPrize` function, putting the ownness on the winner to claim their prize. (Recommended)
+
+> Pull over Push
+
+
+
+
+
 # Low
 
 ### [L-1] `PuppyRaffle::getActivePlayerIndex` returns 0 for non-existent players and for players at index 0, causing a player at index 0 to incorrectly think they have not entered the raffle
@@ -439,6 +539,11 @@ uint256 public constant PRIZE_POOL_PERCENTAGE = 80;
 uint256 public constant FEE_PERCENTAGE = 20;
 uint256 public constant POOL_PRECISION = 100;
 ```
+
+### [I-6] State changes are missing events
+
+### [I-7] `PuppyRaffle::_isActivePlayer` is never used and should be removed
+
 
 # Additional findings not taught in course
 
